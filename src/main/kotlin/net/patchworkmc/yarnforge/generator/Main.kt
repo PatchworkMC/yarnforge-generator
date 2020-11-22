@@ -187,8 +187,13 @@ class Main : CliktCommand() {
         val remappedDir = yarnForgeDir.resolve("remapped")
         yarnForgeDir.resolve("src/main/java").deleteRecursively()
         remappedDir.resolve("main/").copyRecursively(yarnForgeDir.resolve("src/main/java"))
-        yarnForgeDir.resolve("src/test/java").deleteRecursively()
-        remappedDir.resolve("test/").copyRecursively(yarnForgeDir.resolve("src/test/java"))
+        try {
+            yarnForgeDir.resolve("src/test/java").deleteRecursively()
+            remappedDir.resolve("test/").copyRecursively(yarnForgeDir.resolve("src/test/java"))
+        } catch (ignored: NoSuchFileException) {
+            //
+        }
+
         yarnForgeDir.resolve("patches").deleteRecursively()
         remappedDir.resolve("patches").copyRecursively(yarnForgeDir.resolve("patches/minecraft"))
         remappedDir.deleteRecursively()
