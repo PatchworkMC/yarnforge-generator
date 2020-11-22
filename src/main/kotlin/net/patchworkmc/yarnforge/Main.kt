@@ -3,8 +3,10 @@ import com.jsoniter.any.Any as JsonAny
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.arguments.convert
+import com.github.ajalt.clikt.parameters.options.convert
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
+import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.path
 import com.jsoniter.JsonIterator
 import org.eclipse.jgit.api.Git
@@ -23,15 +25,25 @@ fun main(args: Array<String>) {
 
 class Main : CliktCommand() {
     private val startFresh by option(help="yes").flag()
-//    private val remote by argument(help="The remote to push to")
-    private val force by option(help="force push")
+    // using convert as a hack to verify and set before, probably not the best solution but eh
+    private val target by option(help="version to use").convert {
+        // TODO: verify it's valid
+        val minor = it.split('.')[1].toInt()
+        before = "1." + (minor - 1) + ".x"
+
+        return@convert it
+    }.required()
+
+    /**
+     * the generic (1.NN.x) version before the [target]
+     */
+    private lateinit var before: String
     private val yarnForgeDir by argument().path(mustExist = false, canBeFile = false, canBeDir = true).convert { it.toFile() }
 
     private val dataDir = File("yarnforge-data")
     private val pluginDir = dataDir.resolve("yarnforge-plugin")
     // data
     private val skippedCommits = ArrayList<RevCommit>()
-    private val additionalData = ArrayList<String>()
     private val yarnMeta = JsonIterator.deserialize(URL("https://meta.fabricmc.net/v2/versions/yarn").readBytes())
 
     override fun run() {
@@ -54,10 +66,10 @@ class Main : CliktCommand() {
         val repo = git.repository
         // In case something was aborted halfway through
         git.reset().setMode(ResetCommand.ResetType.HARD).setRef("HEAD").call()
-        git.checkout().setName("yarn-1.15.x").call()
+        git.checkout().setName("yarn-$target").call()
         val startCommit = git.log().add(repo.resolve("HEAD")).setMaxCount(1).call().first()
                 .fullMessage.substringAfter("Tracking commit: https://github.com/MinecraftForge/MinecraftForge/commit/")
-        val commits = git.log().addRange(repo.resolve("refs/heads/1.14.x"), repo.resolve("refs/heads/1.15.x")).call().toCollection(ArrayList())
+        val commits = git.log().addRange(repo.resolve("refs/heads/$before"), repo.resolve("refs/heads/$target")).call().toCollection(ArrayList())
         commits.reverse()
 
         for (commit in commits.subList(commits.map{it.name}.indexOf(startCommit) + 1, commits.size)) {
@@ -70,15 +82,16 @@ class Main : CliktCommand() {
     private fun startFresh() {
         yarnForgeDir.deleteRecursively()
         val git = Git.cloneRepository().setURI("https://github.com/MinecraftForge/MinecraftForge.git")
-            .setDirectory(yarnForgeDir).setBranch("1.15.x").call()
+            .setDirectory(yarnForgeDir).setBranch(target).call()
         val repo = git.repository
-        git.branchCreate().setForce(true).setName("1.14.x").setStartPoint("origin/1.14.x").call()
+        git.branchCreate().setForce(true).setName(before).setStartPoint("origin/$before").call()
 
-        val commits = git.log().addRange(repo.resolve("refs/heads/1.14.x"), repo.resolve("refs/heads/1.15.x")).call().toCollection(ArrayList())
+        val commits = git.log().addRange(repo.resolve("refs/heads/$before"), repo.resolve("refs/heads/$target")).call().toCollection(ArrayList())
         commits.reverse()
+
         while (true) {
             val commit = commits[0]
-            git.checkout().setStartPoint(commit).setName("yarn-1.15.x").setCreateBranch(true).call()
+            git.checkout().setName(commit.name).setCreateBranch(false).call()
 
             if (!remap(detectVersion(git.repository, commit))) {
                 skippedCommits.add(commit)
@@ -87,6 +100,7 @@ class Main : CliktCommand() {
             }
             git.add().addFilepattern(".").call()
             git.reset().setRef(commit.getParent(0).name).setMode(ResetCommand.ResetType.SOFT).call()
+            git.checkout().setName("yarn-$target").setCreateBranch(true).call()
             git.commit().setSign(false).setMessage(commit.fullMessage + "\n\nTracking commit: https://github.com/MinecraftForge/MinecraftForge/commit/" + commit.name)
                     .setAuthor(commit.authorIdent).setCommitter(commit.committerIdent).call()
             echo("initial commit done")
@@ -134,7 +148,7 @@ class Main : CliktCommand() {
         // Forgive me, Lord, for I have sinned.
         // This will output a list of all unmerged paths something like
         // error: path 'example' is unmerged
-        val output = String(ProcessBuilder("/usr/bin/git", "checkout", "--", ".").directory(File("YarnForge")).redirectErrorStream(true).start().inputStream.readBytes())
+        val output = String(ProcessBuilder("/usr/bin/git", "checkout", "--", ".").directory(yarnForgeDir).redirectErrorStream(true).start().inputStream.readBytes())
 
         if (output.isNotEmpty()) {
             val split = output.split("'")
@@ -142,11 +156,11 @@ class Main : CliktCommand() {
             for (x in 1 until split.size step 2) {
                 // Nuke all unmerged files. Since it's merged with -Xtheirs this ***should*** only happen with a delete, so this gets resolved correctly
                 yarnForgeDir.resolve(split[x]).delete()
-                ProcessBuilder("git", "add", split[x]).directory(File("YarnForge")).redirectError(File("add")).start().waitFor()
+                ProcessBuilder("git", "add", split[x]).directory(yarnForgeDir).redirectError(File("add")).start().waitFor()
             }
         }
 
-        git = Git.open(File("YarnForge"))
+        git = Git.open(yarnForgeDir)
         var commitMessage = commit.fullMessage
 
         for (skipped in skippedCommits) {
@@ -211,7 +225,7 @@ class Main : CliktCommand() {
 
     private fun addYarnForge(dir: File) {
         // settings.gradle
-        dir.resolve("settings.gradle").appendText("\r\nincludeBuild('" + File(("yarnforge-data")).resolve("yarnforge-plugin").absolutePath + "')")
+        dir.resolve("settings.gradle").appendText("\r\nincludeBuild('" + pluginDir.absolutePath + "')")
         // build.gradle
         var gradle = dir.resolve("build.gradle").readText()
         val repoTarget = "buildscript {\r\n    repositories {\r\n"
