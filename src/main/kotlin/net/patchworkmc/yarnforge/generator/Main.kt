@@ -1,4 +1,4 @@
-package net.patchworkmc.yarnforge
+package net.patchworkmc.yarnforge.generator
 import com.jsoniter.any.Any as JsonAny
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.arguments.argument
@@ -17,7 +17,6 @@ import org.eclipse.jgit.treewalk.TreeWalk
 import java.io.File
 import java.lang.IllegalArgumentException
 import java.net.URL
-import java.nio.file.Path
 
 fun main(args: Array<String>) {
     Main().main(args)
@@ -49,9 +48,10 @@ class Main : CliktCommand() {
     override fun run() {
         // Download yarnforge-plugin
         if (!pluginDir.exists()) {
-            Git.cloneRepository().setURI("https://github.com/ramidzkh/yarnforge-plugin.git").setDirectory(pluginDir).call()
+            // https://github.com/ramidzkh/yarnforge-plugin/pull/8
+            Git.cloneRepository().setURI("https://github.com/theglitch76/yarnforge-plugin.git").setDirectory(pluginDir).call()
         } else {
-            // todo: update the version to master?
+            // todo: pull from master
         }
        if (startFresh) {
            startFresh()
@@ -91,6 +91,7 @@ class Main : CliktCommand() {
 
         while (true) {
             val commit = commits[0]
+            git.reset().setMode(ResetCommand.ResetType.HARD).setRef("HEAD").call()
             git.checkout().setName(commit.name).setCreateBranch(false).call()
 
             if (!remap(detectVersion(git.repository, commit))) {
@@ -101,10 +102,8 @@ class Main : CliktCommand() {
             git.add().addFilepattern(".").call()
             git.reset().setRef(commit.getParent(0).name).setMode(ResetCommand.ResetType.SOFT).call()
             git.checkout().setName("yarn-$target").setCreateBranch(true).call()
-            git.commit().setSign(false).setMessage(commit.fullMessage + "\n\nTracking commit: https://github.com/MinecraftForge/MinecraftForge/commit/" + commit.name)
-                    .setAuthor(commit.authorIdent).setCommitter(commit.committerIdent).call()
+            git.commit().setSign(false).setMessage(createCommitMessage(commit)).setAuthor(commit.authorIdent).setCommitter(commit.committerIdent).call()
             echo("initial commit done")
-            // TODO: skipped commits
             skippedCommits.clear()
             commits.remove(commit)
             break
@@ -156,21 +155,14 @@ class Main : CliktCommand() {
             for (x in 1 until split.size step 2) {
                 // Nuke all unmerged files. Since it's merged with -Xtheirs this ***should*** only happen with a delete, so this gets resolved correctly
                 yarnForgeDir.resolve(split[x]).delete()
-                ProcessBuilder("git", "add", split[x]).directory(yarnForgeDir).redirectError(File("add")).start().waitFor()
+                ProcessBuilder("git", "add", split[x]).directory(yarnForgeDir).start().waitFor()
             }
         }
 
         git = Git.open(yarnForgeDir)
-        var commitMessage = commit.fullMessage
-
-        for (skipped in skippedCommits) {
-            commitMessage += "Skipped commit: " + skipped.shortMessage + " https://github.com/MinecraftForge/MinecraftForge/commit/" + skipped.name + "\n"
-        }
-        commitMessage += "\nTracking commit: https://github.com/MinecraftForge/MinecraftForge/commit/" + commit.name
-
         skippedCommits.clear()
         git.add().addFilepattern(".").call()
-        git.commit().setSign(false).setMessage(commitMessage).setAuthor(commit.authorIdent).setCommitter(commit.committerIdent).call()
+        git.commit().setSign(false).setMessage(createCommitMessage(commit)).setAuthor(commit.authorIdent).setCommitter(commit.committerIdent).call()
     }
 
     private fun remap(version: String) : Boolean {
@@ -249,6 +241,17 @@ class Main : CliktCommand() {
 
     private fun runGitProcess(vararg args: String): Int {
         return ProcessBuilder("git", *args).directory(yarnForgeDir).start().waitFor()
+    }
+
+    private fun createCommitMessage(commit: RevCommit): String {
+        var commitMessage = commit.fullMessage
+
+        for (skipped in skippedCommits) {
+            commitMessage += "\n\nSkipped commit: " + skipped.shortMessage + " https://github.com/MinecraftForge/MinecraftForge/commit/" + skipped.name + "\n"
+        }
+
+        commitMessage += "\nTracking commit: https://github.com/MinecraftForge/MinecraftForge/commit/" + commit.name
+        return commitMessage
     }
 }
 

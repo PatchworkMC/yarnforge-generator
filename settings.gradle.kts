@@ -1,1 +1,1 @@
-rootProject.name = "yarnforge"
+rootProject.name = "yarnforge-generator"

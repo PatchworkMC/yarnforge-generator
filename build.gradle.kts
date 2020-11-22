@@ -3,7 +3,7 @@ plugins {
     kotlin("jvm") version "1.4.10"
 }
 
-group = "org.example"
+group = "net.patchworkmc"
 version = "1.0-SNAPSHOT"
 
 repositories {
@@ -17,11 +17,26 @@ dependencies {
     implementation("com.jsoniter", "jsoniter", "0.9.19")
 }
 
-java.sourceCompatibility = org.gradle.api.JavaVersion.VERSION_1_8
-java.targetCompatibility = org.gradle.api.JavaVersion.VERSION_1_8
+java.sourceCompatibility = JavaVersion.VERSION_1_8
+java.targetCompatibility = JavaVersion.VERSION_1_8
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
     kotlinOptions {
         jvmTarget = "1.8"
+    }
+}
+
+val fatJar = tasks.create<Jar>("fatJar") {
+    archiveBaseName.set("${project.name}-fat")
+    manifest {
+        attributes["Main-Class"] =  "net.patchworkmc.yarnforge.generator"
+    }
+    from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) })
+    with(tasks.jar.get() as CopySpec)
+}
+
+tasks {
+    "build" {
+        dependsOn(fatJar)
     }
 }
