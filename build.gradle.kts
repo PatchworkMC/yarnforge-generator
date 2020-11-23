@@ -1,6 +1,7 @@
 
 plugins {
     kotlin("jvm") version "1.4.10"
+    application
 }
 
 group = "net.patchworkmc"
@@ -29,14 +30,17 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
 val fatJar = tasks.create<Jar>("fatJar") {
     archiveBaseName.set("${project.name}-fat")
     manifest {
-        attributes["Main-Class"] =  "net.patchworkmc.yarnforge.generator"
+        attributes["Main-Class"] =  "net.patchworkmc.yarnforge.generator.MainKt"
     }
     from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) })
+    // todo: figure out how to do this without a security exception
     with(tasks.jar.get() as CopySpec)
 }
-
 tasks {
     "build" {
         dependsOn(fatJar)
     }
+}
+application {
+    mainClassName = "net.patchworkmc.yarnforge.generator.MainKt"
 }

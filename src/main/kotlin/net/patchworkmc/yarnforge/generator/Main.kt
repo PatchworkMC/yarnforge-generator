@@ -99,6 +99,7 @@ class Main : CliktCommand() {
                 commits.remove(commit)
                 continue
             }
+
             git.add().addFilepattern(".").call()
             git.reset().setRef(commit.getParent(0).name).setMode(ResetCommand.ResetType.SOFT).call()
             git.checkout().setName("yarn-$target").setCreateBranch(true).call()
@@ -241,11 +242,18 @@ class Main : CliktCommand() {
     }
 
     private fun runGradlewProcess(vararg args: String): Int {
-        return ProcessBuilder("./gradlew", *args).directory(yarnForgeDir).start().waitFor()
+        return runProcess("./gradlew", *args)
     }
 
     private fun runGitProcess(vararg args: String): Int {
-        return ProcessBuilder("git", *args).directory(yarnForgeDir).start().waitFor()
+        return runProcess("git", *args)
+    }
+
+    private fun runProcess(vararg args: String): Int {
+        val process = ProcessBuilder(*args).directory(yarnForgeDir).redirectErrorStream(true).start()
+        // if the process' output buffer gets full then it deadlocks
+        process.inputStream.readBytes()
+        return process.waitFor()
     }
 
     private fun createCommitMessage(commit: RevCommit): String {
