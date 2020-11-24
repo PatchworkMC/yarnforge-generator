@@ -23,7 +23,7 @@ fun main(args: Array<String>) {
 }
 
 class Main : CliktCommand() {
-    private val startFresh by option(help="yes").flag()
+    private val startFresh by option(help="start a completely new repository").flag()
     // using convert as a hack to verify and set before, probably not the best solution but eh
     private val target by option(help="version to use").convert {
         // TODO: verify it's valid
