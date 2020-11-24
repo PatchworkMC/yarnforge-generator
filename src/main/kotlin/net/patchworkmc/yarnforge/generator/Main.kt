@@ -92,7 +92,7 @@ class Main : CliktCommand() {
         while (true) {
             val commit = commits[0]
             git.reset().setMode(ResetCommand.ResetType.HARD).setRef("HEAD").call()
-            git.checkout().setName(commit.name).setCreateBranch(false).call()
+            git.checkout().setName(commit.name).call()
 
             if (!remap(detectVersion(git.repository, commit))) {
                 skippedCommits.add(commit)
@@ -127,7 +127,7 @@ class Main : CliktCommand() {
             "$version.x"
         }
 
-        git.checkout().setName(commit.name).setCreateBranch(false).call()
+        git.checkout().setName(commit.name).call()
 
         if (!remap(version)) {
             skippedCommits.add(commit)
@@ -137,15 +137,13 @@ class Main : CliktCommand() {
             return
         }
 
-
+        git.reset().setRef("HEAD~1").setMode(ResetCommand.ResetType.SOFT).call()
+        git.add().addFilepattern(".").call()
+        git.stashCreate().call()
+        git.checkout().setName("yarn-$versionGeneric").call()
         git.close()
-
-        runGitProcess("reset", "HEAD~1","--soft")
-        runGitProcess("add", ".")
-        runGitProcess("stash")
-        runGitProcess( "checkout", "yarn-$versionGeneric")
+        // This can't be a jgit command because, despite having the merge strategies, none of the commits support them
         runGitProcess("cherry-pick", "-n", "-m1", "-Xtheirs", "stash")
-        // Forgive me, Lord, for I have sinned.
         // This will output a list of all unmerged paths something like
         // error: path 'example' is unmerged
         val output = String(ProcessBuilder("git", "checkout", "--", ".").directory(yarnForgeDir).redirectErrorStream(true).start().inputStream.readBytes())
@@ -154,9 +152,8 @@ class Main : CliktCommand() {
             val split = output.split("'")
             // we only want to capture the part in the quotes, not outside
             for (x in 1 until split.size step 2) {
-                // Nuke all unmerged files. Since it's merged with -Xtheirs this ***should*** only happen with a delete, so this gets resolved correctly
-                yarnForgeDir.resolve(split[x]).delete()
-                ProcessBuilder("git", "add", split[x]).directory(yarnForgeDir).start().waitFor()
+                // Nuke all unmerged files. Since it's merged with -Xtheirs this ***should*** only happen with a delete, so this resolves conflicts properly
+                runGitProcess("rm", "-rf", split[x])
             }
         }
 
