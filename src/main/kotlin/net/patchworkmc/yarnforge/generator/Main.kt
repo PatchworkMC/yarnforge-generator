@@ -127,8 +127,7 @@ class Main : CliktCommand() {
             "$version.x"
         }
 
-        git.branchDelete().setBranchNames("work-$versionGeneric").setForce(true).call()
-        git.checkout().setStartPoint(commit).setName("work-$versionGeneric").setCreateBranch(true).call()
+        git.checkout().setName(commit.name).setCreateBranch(false).call()
 
         if (!remap(version)) {
             skippedCommits.add(commit)
@@ -141,6 +140,7 @@ class Main : CliktCommand() {
 
         git.close()
 
+        runGitProcess("reset", "HEAD~1","--soft")
         runGitProcess("add", ".")
         runGitProcess("stash")
         runGitProcess( "checkout", "yarn-$versionGeneric")
@@ -148,7 +148,7 @@ class Main : CliktCommand() {
         // Forgive me, Lord, for I have sinned.
         // This will output a list of all unmerged paths something like
         // error: path 'example' is unmerged
-        val output = String(ProcessBuilder("/usr/bin/git", "checkout", "--", ".").directory(yarnForgeDir).redirectErrorStream(true).start().inputStream.readBytes())
+        val output = String(ProcessBuilder("git", "checkout", "--", ".").directory(yarnForgeDir).redirectErrorStream(true).start().inputStream.readBytes())
 
         if (output.isNotEmpty()) {
             val split = output.split("'")
@@ -186,16 +186,16 @@ class Main : CliktCommand() {
         }
 
         val remappedDir = yarnForgeDir.resolve("remapped")
-        yarnForgeDir.resolve("src/main/java").deleteRecursively()
-        remappedDir.resolve("main/").copyRecursively(yarnForgeDir.resolve("src/main/java"))
+        runGitProcess("rm", "-rf", "src/main/java")
+        remappedDir.resolve("main/").copyRecursively(yarnForgeDir.resolve("src/main/java/"))
         try {
-            yarnForgeDir.resolve("src/test/java").deleteRecursively()
-            remappedDir.resolve("test/").copyRecursively(yarnForgeDir.resolve("src/test/java"))
+            runGitProcess("rm", "-rf", "src/test/java")
+            remappedDir.resolve("test/").copyRecursively(yarnForgeDir.resolve("src/test/java/"))
         } catch (ignored: NoSuchFileException) {
             //
         }
 
-        yarnForgeDir.resolve("patches").deleteRecursively()
+        runGitProcess("rm", "-rf", "patches")
         remappedDir.resolve("patches").copyRecursively(yarnForgeDir.resolve("patches/minecraft"))
         remappedDir.deleteRecursively()
         return true
