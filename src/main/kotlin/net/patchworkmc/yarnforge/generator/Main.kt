@@ -27,7 +27,10 @@ class Main : CliktCommand() {
 
 	// using convert as a hack to verify and set before, probably not the best solution but eh
 	private val target by option(help = "version to use").convert {
-		return@convert getVersionGeneric(it)
+		val to = getVersionGeneric(it)
+		val minor = to.split('.')[1].toInt()
+		before = "1." + (minor - 1) + ".x"
+		return@convert to
 	}.required()
 
 	/**
@@ -214,9 +217,6 @@ class Main : CliktCommand() {
 		if (raw.contains('-')) {
 			raw = raw.split("-")[0]
 		}
-		val minor = raw.split('.')[1].toInt()
-		before = "1." + (minor - 1) + ".x"
-
 		return raw
 	}
 
