@@ -10,6 +10,7 @@ import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.path
 import com.jsoniter.JsonIterator
 import org.eclipse.jgit.api.Git
+import org.eclipse.jgit.api.MergeCommand
 import org.eclipse.jgit.api.ResetCommand
 import org.eclipse.jgit.lib.Repository
 import org.eclipse.jgit.revwalk.RevCommit
@@ -61,13 +62,21 @@ class Main : CliktCommand() {
 
 	private fun resume() {
 		val git = Git.open(yarnForgeDir)
-		// TODO: pull from upstream
 		val repo = git.repository
 		// In case something was aborted halfway through
 		git.reset().setMode(ResetCommand.ResetType.HARD).setRef("HEAD").call()
+		// Update our branches
+		git.checkout().setName(before).call()
+		git.pull().setRemote("origin").setFastForward(MergeCommand.FastForwardMode.FF_ONLY).call()
+		git.checkout().setName(target).call()
+		git.pull().setRemote("origin").setFastForward(MergeCommand.FastForwardMode.FF_ONLY).call()
+		// Find the first commit
 		git.checkout().setName("yarn-$target").call()
 		val startCommit = git.log().add(repo.resolve("HEAD")).setMaxCount(1).call().first()
 			.fullMessage.substringAfter("Tracking commit: https://github.com/MinecraftForge/MinecraftForge/commit/")
+		// Establish our commits, reverse the list to be chronological
+		// TODO: this has weird behavior where history is nonlinear
+		//		but nothing has broken yet so it's probably fine
 		val commits = git.log().addRange(repo.resolve("refs/heads/$before"), repo.resolve("refs/heads/$target")).call().toCollection(ArrayList())
 		commits.reverse()
 
