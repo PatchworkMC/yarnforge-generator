@@ -26,11 +26,7 @@ class Main : CliktCommand() {
     private val startFresh by option(help="start a completely new repository").flag()
     // using convert as a hack to verify and set before, probably not the best solution but eh
     private val target by option(help="version to use").convert {
-        // TODO: verify it's valid
-        val minor = it.split('.')[1].toInt()
-        before = "1." + (minor - 1) + ".x"
-
-        return@convert it
+        return@convert getVersionGeneric(it)
     }.required()
 
     /**
@@ -50,14 +46,12 @@ class Main : CliktCommand() {
         if (!pluginDir.exists()) {
             // https://github.com/ramidzkh/yarnforge-plugin/pull/8
             Git.cloneRepository().setURI("https://github.com/theglitch76/yarnforge-plugin.git").setDirectory(pluginDir).call()
-        } else {
-            // todo: pull from master
         }
-       if (startFresh) {
+        if (startFresh) {
            startFresh()
-       } else {
+        } else {
            resume()
-       }
+        }
     }
 
     private fun resume() {
@@ -121,26 +115,20 @@ class Main : CliktCommand() {
     private fun step(git: Git, commit: RevCommit) {
         var git = git
         val version = detectVersion(git.repository, commit)
-        val versionGeneric: String = if (version.split('.').size > 2) {
-            version.substringBeforeLast('.') + ".x"
-        } else {
-            "$version.x"
-        }
-
         git.checkout().setName(commit.name).call()
 
         if (!remap(version)) {
             skippedCommits.add(commit)
             git.add().addFilepattern(".").call()
             git.reset().setRef("HEAD").setMode(ResetCommand.ResetType.HARD).call()
-            git.checkout().setName("yarn-$versionGeneric").call()
+            git.checkout().setName("yarn-$target").call()
             return
         }
 
         git.reset().setRef("HEAD~1").setMode(ResetCommand.ResetType.SOFT).call()
         git.add().addFilepattern(".").call()
         git.stashCreate().call()
-        git.checkout().setName("yarn-$versionGeneric").call()
+        git.checkout().setName("yarn-$target").call()
         git.close()
         // This can't be a jgit command because, despite having the merge strategies, none of the commits support them
         runGitProcess("cherry-pick", "-n", "-m1", "-Xtheirs", "stash")
@@ -218,6 +206,18 @@ class Main : CliktCommand() {
         return string
     }
 
+    private fun getVersionGeneric(version: String) : String {
+        var raw = version
+        // 1.16-rc1
+        if (raw.contains('-')) {
+            raw = raw.split("-")[0]
+        }
+        val minor = raw.split('.')[1].toInt()
+        before = "1." + (minor - 1) + ".x"
+
+        return raw
+    }
+
     private fun addYarnForge(dir: File) {
         // settings.gradle
         dir.resolve("settings.gradle").appendText("\r\nincludeBuild('" + pluginDir.absolutePath + "')")
@@ -249,8 +249,14 @@ class Main : CliktCommand() {
     private fun runProcess(vararg args: String): Int {
         val process = ProcessBuilder(*args).directory(yarnForgeDir).redirectErrorStream(true).start()
         // if the process' output buffer gets full then it deadlocks
-        process.inputStream.readBytes()
-        return process.waitFor()
+        val bytes = process.inputStream.readBytes()
+        val exitCode = process.waitFor()
+        // "resolving" merge conflicts is handled, we only care about what happens for gradle processes
+        if (exitCode != 0 && args[0] == "./gradlew") {
+            File("ERR_" + System.currentTimeMillis() + ".txt").writeBytes(bytes)
+        }
+
+        return exitCode
     }
 
     private fun createCommitMessage(commit: RevCommit): String {

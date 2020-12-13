@@ -11,3 +11,4 @@ bin/
 .project
 YarnForge/
 yarnforge-data/
+ERR_*.txt
