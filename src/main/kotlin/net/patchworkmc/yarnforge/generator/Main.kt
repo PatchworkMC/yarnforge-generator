@@ -12,10 +12,15 @@ import com.jsoniter.JsonIterator
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.MergeCommand
 import org.eclipse.jgit.api.ResetCommand
+import org.eclipse.jgit.api.errors.RefNotAdvertisedException
+import org.eclipse.jgit.lib.AnyObjectId
 import org.eclipse.jgit.lib.Repository
 import org.eclipse.jgit.revwalk.RevCommit
+import org.eclipse.jgit.revwalk.RevWalk
+import org.eclipse.jgit.transport.URIish
 import org.eclipse.jgit.treewalk.TreeWalk
 import java.io.File
+import java.net.URI
 import java.net.URL
 import com.jsoniter.any.Any as JsonAny
 
@@ -66,10 +71,34 @@ class Main : CliktCommand() {
 		// In case something was aborted halfway through
 		git.reset().setMode(ResetCommand.ResetType.HARD).setRef("HEAD").call()
 		// Update our branches
-		git.checkout().setName(before).call()
-		git.pull().setRemote("origin").setFastForward(MergeCommand.FastForwardMode.FF_ONLY).call()
-		git.checkout().setName(target).call()
-		git.pull().setRemote("origin").setFastForward(MergeCommand.FastForwardMode.FF_ONLY).call()
+
+		val branches = git.branchList().call().map { it.name }
+		if (!branches.contains("yarn-$target")) {
+			git.fetch().setRemote("yarn").call()
+			// see if it exists
+			if (repo.findRef("refs/remotes/yarn/yarn-$target") != null) {
+				git.branchCreate().setForce(true).setName("yarn-$target").setStartPoint("yarn/yarn-$target").call()
+			} else {
+				if (repo.findRef("refs/remotes/yarn/yarn-$before") != null) {
+					// hunt down the start commit
+					// TODO: DEDUPLICATE ME!!
+					val hash = git.log().addRange(repo.resolve("refs/heads/$before"), repo.resolve("refs/heads/$target")).call().last().getParent(0).name
+					val walk = RevWalk(git.repository)
+					var candidate = walk.parseCommit(repo.exactRef("refs/heads/yarn-$before").objectId)
+					walk.markStart(candidate)
+					while (true) {
+						if (candidate.fullMessage.substringAfter("Tracking commit: https://github.com/MinecraftForge/MinecraftForge/commit/") == hash) {
+							git.branchCreate().setForce(true).setName("yarn-$target").setStartPoint(candidate.name).call()
+							break
+						} else {
+							candidate = walk.next()
+						}
+					}
+				}
+			}
+		}
+
+		updateBranch("yarn-$target", git)
 		// Find the first commit
 		git.checkout().setName("yarn-$target").call()
 		val startCommit = git.log().add(repo.resolve("HEAD")).setMaxCount(1).call().first()
@@ -87,11 +116,24 @@ class Main : CliktCommand() {
 		}
 	}
 
+	private fun updateBranch(branch: String, git: Git) {
+		val current = git.repository.fullBranch.substringAfter("refs/heads/")
+		git.checkout().setName(branch).call()
+		try {
+			git.pull().setRemote("origin").setFastForward(MergeCommand.FastForwardMode.FF_ONLY).call()
+		} catch (ex: RefNotAdvertisedException) {
+			//
+		}
+
+		git.checkout().setName(current).call()
+	}
+
 	private fun startFresh() {
 		yarnForgeDir.deleteRecursively()
 		val git = Git.cloneRepository().setURI("https://github.com/MinecraftForge/MinecraftForge.git")
 			.setDirectory(yarnForgeDir).setBranch(target).call()
 		val repo = git.repository
+		git.remoteAdd().setName("yarn").setUri(URIish("https://github.com/patchworkmc/yarnforge.git")).call()
 		git.branchCreate().setForce(true).setName(before).setStartPoint("origin/$before").call()
 
 		val commits = git.log().addRange(repo.resolve("refs/heads/$before"), repo.resolve("refs/heads/$target")).call().toCollection(ArrayList())
