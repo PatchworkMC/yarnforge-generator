@@ -272,18 +272,38 @@ class Main : CliktCommand() {
 	}
 
 	private fun addYarnForge(dir: File) {
-		// settings.gradle
-		dir.resolve("settings.gradle").appendText("\r\nincludeBuild('" + pluginDir.absolutePath + "')")
-		// build.gradle
-		var gradle = dir.resolve("build.gradle").readText()
-		val repoTarget = "buildscript {\r\n    repositories {\r\n"
-		val dependencyTarget = "    dependencies {\r\n"
-		val working = repoTarget + "        maven { url = 'https://oss.sonatype.org/content/groups/public/' }" +
-				"\r\n        maven { url = 'https://maven.fabricmc.net/' }\r\n" + gradle.substringAfter(repoTarget).substringBefore(dependencyTarget)
-		// TODO: Do not hardcode version!
-		gradle = working + dependencyTarget + "        classpath 'me.ramidzkh:yarnforge-plugin:1.3.0-SNAPSHOT'\r\n" + gradle.substringAfter(dependencyTarget)
-		gradle = "$gradle\r\napply plugin: 'yarnforge-plugin'"
-		dir.resolve("build.gradle").writeText(gradle)
+		run {
+			// settings.gradle
+			dir.resolve("settings.gradle").appendText("\r\nincludeBuild('" + pluginDir.absolutePath + "')")
+			// build.gradle
+			var gradle = dir.resolve("build.gradle").readText()
+			val repoTarget = "buildscript {\r\n    repositories {\r\n"
+			val dependencyTarget = "    dependencies {\r\n"
+			val working = repoTarget + "        maven { url = 'https://oss.sonatype.org/content/groups/public/' }" +
+					"\r\n        maven { url = 'https://maven.fabricmc.net/' }\r\n" + gradle.substringAfter(repoTarget).substringBefore(dependencyTarget)
+			// TODO: Do not hardcode version!
+			gradle = working + dependencyTarget + "        classpath 'me.ramidzkh:yarnforge-plugin:1.3.0-SNAPSHOT'\r\n" + gradle.substringAfter(dependencyTarget)
+			gradle = "$gradle\r\napply plugin: 'yarnforge-plugin'"
+			dir.resolve("build.gradle").writeText(gradle)
+		}
+		run {
+			// for some reason this one instance of declaring a dependency on asm 7 gives stitch a heart attack, so
+			// we update it to 9.0
+			val buildSrcGradle = dir.resolve("buildSrc/build.gradle")
+
+			if (buildSrcGradle.exists()) {
+				val gradle = buildSrcGradle.readLines().toMutableList()
+				for (line in gradle) {
+					if (line.contains("implementation 'org.ow2.asm")) {
+						// TODO: don't hardcode
+						gradle[gradle.indexOf(line)] = line.replace("7.2", "9.0")
+					}
+				}
+				val sb = StringBuilder()
+				gradle.forEach { sb.append("$it\n") }
+				buildSrcGradle.writeText(sb.toString())
+			}
+		}
 	}
 
 	private fun readFile(repository: Repository, commit: RevCommit, path: String): String {
